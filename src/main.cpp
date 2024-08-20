@@ -3,6 +3,8 @@
 #include "LiquidCrystal.h"
 #include "ezBuzzer.h"
 
+#define JOYSTICK_BUFFER 100UL
+
 // put function declarations here:
 int senseDistance();
 int detectSound();
@@ -12,9 +14,10 @@ typedef struct {
   int sw;
 } joystickData;
 joystickData readJoystick();
-void playSound(joystickData);
-void updateMenu(joystickData);
 int handleJoystick4Dir(joystickData);
+void appTransitionMachine(int);
+void appStateMachine();
+void digiPet();
 
 // LCD
 const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
@@ -28,8 +31,7 @@ const int SW = 13;
 int lastSWstate = HIGH;
 int lastVRx = 0;
 int lastVRy = 0;
-int prevJoystickSignalMillis = 0;
-const int timeBetweenInputsMillis = 500;
+unsigned long joystickDelay = JOYSTICK_BUFFER;
 // ultrasonic sensor
 const int trigPin = 10;
 const int echoPin = 9;
@@ -39,14 +41,20 @@ ezBuzzer buzzer(buzzerPin);  // create ezBuzzer object that attach to a pin;
 // app FSM
 int appState = 0;
 /*
-
+0 - main menu
+1 - pet-hover
+2 - pet
+3 - slots-hover
+4 - slots
+5 - hop-hover
+6 - hop
 */
 int menuState = 0;
 /*
 
 */
 int joystickMelody[] = {NOTE_A5};
-int joystickNoteDuration[] = {16};
+int joystickNoteDuration[] = {32};
 int startupMelody[] = {NOTE_C4, NOTE_E4, NOTE_G4, NOTE_C5};
 int startupNoteDuration[] = {8, 8, 8, 4};
 
@@ -73,11 +81,10 @@ void setup() {
 
 void loop() {
   buzzer.loop();
-  // set the cursor to column 0, line 1
-  // detectSound();
-  // senseDistance();
+  // Serial.println(joystickDelay);
   joystickData joystick = readJoystick();
-  playSound(joystick);
+  appTransitionMachine(handleJoystick4Dir(joystick));
+  appStateMachine();
 }
 
 // put function definitions here:
@@ -112,49 +119,140 @@ joystickData readJoystick() {
   return {x, y, sw};
 }
 
-void playSound(joystickData joystickData) {
-  int x = abs(joystickData.x - 512);  // displacement scalar
-  int y = abs(joystickData.y - 512);  // displacement scalar
-  if (lastSWstate == HIGH && joystickData.sw == LOW) {
-    buzzer.playMelody(joystickMelody, joystickNoteDuration, 1);
-  } else if (lastVRx < 400 && x > 400) {
-    buzzer.playMelody(joystickMelody, joystickNoteDuration, 1);
-  } else if (lastVRy < 400 && y > 400) {
-    buzzer.playMelody(joystickMelody, joystickNoteDuration, 1);
-  }
-  lastSWstate = joystickData.sw;
-  lastVRx = x;
-  lastVRy = y;
-}
+
 
 int handleJoystick4Dir(joystickData joystickData) {
   // if there hasn't been enough time between inputs, return
-  unsigned long currentMillis = millis();
-  if (currentMillis - prevJoystickSignalMillis < timeBetweenInputsMillis)
+  if (joystickDelay < JOYSTICK_BUFFER) {
+    joystickDelay++;
     return 0;
+  }
   // returns: 0 -> nothing | 1 -> button pressed | 2 -> up | 3 -> right | 4 ->
   // down | 5 -> left
   if (!joystickData.sw) {
-    prevJoystickSignalMillis = currentMillis;
+    joystickDelay = 1;
+    buzzer.playMelody(joystickMelody, joystickNoteDuration, 1);
+    Serial.println(1);
     return 1;
   }
   if (joystickData.y < 20) {
-    prevJoystickSignalMillis = currentMillis;
+    joystickDelay = 1;
+    buzzer.playMelody(joystickMelody, joystickNoteDuration, 1);
+    Serial.println(2);
     return 2;
   }
   if (joystickData.x > 1000) {
-    prevJoystickSignalMillis = currentMillis;
+    joystickDelay = 1;
+    buzzer.playMelody(joystickMelody, joystickNoteDuration, 1);
+    Serial.println(3);
     return 3;
   }
   if (joystickData.y > 1000) {
-    prevJoystickSignalMillis = currentMillis;
+    joystickDelay = 1;
+    buzzer.playMelody(joystickMelody, joystickNoteDuration, 1);
+    Serial.println(4);
     return 4;
   }
   if (joystickData.x < 20) {
-    prevJoystickSignalMillis = currentMillis;
+    joystickDelay = 1;
+    buzzer.playMelody(joystickMelody, joystickNoteDuration, 1);
+    Serial.println(5);
     return 5;
   }
   return 0;
 }
 
-void updateMenu(joystickData joystickData) {}
+void appTransitionMachine(int input) { // use an FSM to control the global appState
+  switch (appState) {
+    case 0: // 0 - main menu
+      if (input != 0) // any action
+        appState = 1;
+      break;
+    case 1: // 1 - pet-hover
+      if (input == 1) { 
+        appState = 2;
+      } else if (input == 3) {
+        appState = 3;
+      } else if (input == 5) {
+        appState = 5;
+      }
+      break;
+    case 2: // 2 - pet
+      break;
+    case 3: // 3 - slots-hover
+      if (input == 1) { 
+        appState = 4;
+      } else if (input == 3) {
+        appState = 5;
+      } else if (input == 5) {
+        appState = 1;
+      }
+      break;
+    case 4: // 4 - slots
+      if (input != 0) // any action
+        appState = 0;
+      break;
+    case 5: // 5 - hop-hover
+      if (input == 1) { 
+        appState = 6;
+      } else if (input == 3) {
+        appState = 1;
+      } else if (input == 5) {
+        appState = 3;
+      }
+      break;
+    case 6: // 6 - hop
+      if (input != 0) // any action
+        appState = 0;
+      break;
+    default:
+      break;
+  }
+}
+
+void appStateMachine() {
+  switch (appState) {
+    case 0: // 0 - main menu
+      lcd.setCursor(0, 0);
+      lcd.print("   Digi-Box!   ");
+      lcd.setCursor(0, 1);
+      lcd.print("Pet  Slots  Hop!");
+      break;
+    case 1: // 1 - pet-hover
+      lcd.setCursor(0, 1);
+      lcd.print("~Pet  Slots  Hop!");
+      break;
+    case 2: // 2 - pet
+      lcd.setCursor(0, 0);
+      lcd.print("    Digi-Pet    ");
+      lcd.setCursor(0, 1);
+      lcd.print("Wave, Chat, Nap!");
+      break;
+    case 3: // 3 - slots-hover
+      lcd.setCursor(0, 1);
+      lcd.print("Pet  ~Slots  Hop!");
+      break;
+    case 4: // 4 - slots
+      lcd.setCursor(0, 0);
+      lcd.print("  Coming Soon!  ");
+      lcd.setCursor(0, 1);
+      lcd.print("Press to return.");
+      break;
+    case 5: // 5 - hop-hover
+      lcd.setCursor(0, 1);
+      lcd.print("Pet  Slots  ~Hop!");
+      break;
+    case 6: // 6 - hop
+      lcd.setCursor(0, 0);
+      lcd.print("  Coming Soon!  ");
+      lcd.setCursor(0, 1);
+      lcd.print("Press to return.");
+      break;
+    default:
+      break;
+  }
+}
+
+void digiPet() {
+  
+}
